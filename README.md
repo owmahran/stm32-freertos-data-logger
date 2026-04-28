@@ -4,7 +4,7 @@ Real-time embedded systems project running FreeRTOS on STM32F411RE Cortex-M4.
 Compiled with ARM GCC and verified running on Renode STM32 emulator.
 
 ## Live Demo
-[Click here to run the GUI simulation](https://YOUR_GITHUB_USERNAME.github.io/stm32-freertos-data-logger)
+[Click here to run the GUI simulation](https://owmahran.github.io/stm32-freertos-data-logger)
 
 ## Firmware running on Renode emulator
 ![Renode Output](docs/renode_output.png)

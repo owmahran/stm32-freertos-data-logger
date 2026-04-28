@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>STM32 FreeRTOS Data Logger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg:        #0d1117;
+    --bg2:       #161b22;
+    --bg3:       #1c2330;
+    --border:    #30363d;
+    --border2:   #21262d;
+    --text:      #e6edf3;
+    --text2:     #7d8590;
+    --text3:     #484f58;
+    --green:     #3fb950;
+    --green-bg:  #0d2016;
+    --green-dim: #1a4228;
+    --blue:      #58a6ff;
+    --blue-bg:   #0c1d36;
+    --amber:     #d29922;
+    --amber-bg:  #2d1f00;
+    --red:       #f85149;
+    --red-bg:    #2d0f0e;
+    --teal:      #39d353;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'IBM Plex Sans', sans-serif;
+    --radius:    6px;
+    --radius-lg: 10px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ---- Top bar ---- */
+  .topbar {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    color: var(--text2);
+  }
+  .chip.live { border-color: var(--green); color: var(--green); background: var(--green-bg); }
+  .chip.fault { border-color: var(--red); color: var(--red); background: var(--red-bg); animation: pulse 0.8s ease-in-out infinite alternate; }
+  @keyframes pulse { from { opacity: 1; } to { opacity: 0.5; } }
+  .title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .subtitle { font-size: 12px; color: var(--text2); font-family: var(--mono); }
+
+  /* ---- Buttons ---- */
+  .btn {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .btn:hover { background: #2d333b; border-color: #6e7681; }
+  .btn.primary { background: #238636; border-color: #2ea043; color: #fff; }
+  .btn.primary:hover { background: #2ea043; }
+  .btn.danger { background: #da3633; border-color: #f85149; color: #fff; }
+  .btn.danger:hover { background: #f85149; }
+  .btn-row { display: flex; gap: 8px; align-items: center; }
+
+  /* ---- Layout ---- */
+  .main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+  /* ---- Panel ---- */
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px 18px;
+  }
+  .panel-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 14px;
+    font-family: var(--mono);
+  }
+
+  /* ---- Metric cards ---- */
+  .metric {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .metric-label { font-size: 11px; color: var(--text2); font-family: var(--mono); margin-bottom: 4px; }
+  .metric-val { font-size: 28px; font-weight: 600; font-family: var(--mono); line-height: 1; }
+  .metric-unit { font-size: 11px; color: var(--text3); margin-top: 3px; font-family: var(--mono); }
+  .metric-val.ok   { color: var(--green); }
+  .metric-val.warn { color: var(--amber); }
+  .metric-val.err  { color: var(--red);   }
+
+  /* ---- Task table ---- */
+  .task-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 52px 120px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border2);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .task-row:last-child { border-bottom: none; }
+  .task-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+  .s-running  { background: var(--green-bg);  color: var(--green);  border: 1px solid var(--green-dim); }
+  .s-blocked  { background: var(--blue-bg);   color: var(--blue);   border: 1px solid #1b3a6b; }
+  .s-ready    { background: var(--amber-bg);  color: var(--amber);  border: 1px solid #5c3c00; }
+  .s-fault    { background: var(--red-bg);    color: var(--red);    border: 1px solid #5a1e1c; }
+  .task-name  { color: var(--text); }
+  .task-pri   { color: var(--text3); text-align: center; }
+  .stack-wrap { display: flex; align-items: center; gap: 6px; }
+  .stack-track {
+    flex: 1; height: 5px; background: var(--border);
+    border-radius: 3px; overflow: hidden;
+  }
+  .stack-fill {
+    height: 100%; border-radius: 3px;
+    background: var(--blue);
+    transition: width 0.6s ease;
+  }
+  .stack-pct { font-size: 10px; color: var(--text3); min-width: 30px; text-align: right; }
+
+  /* ---- Queue / semaphore ---- */
+  .q-grid { display: flex; gap: 5px; flex-wrap: wrap; }
+  .q-cell {
+    width: 22px; height: 22px; border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    transition: background 0.25s, border-color 0.25s;
+  }
+  .q-cell.full { background: #1a4228; border-color: var(--green); }
+  .sem-indicator {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .sem-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    transition: background 0.25s;
+  }
+  .sem-dot.free  { background: var(--green); box-shadow: 0 0 6px #3fb95060; }
+  .sem-dot.taken { background: var(--red);   box-shadow: 0 0 6px #f8514960; }
+
+  /* ---- UART log ---- */
+  .uart-log {
+    background: #010409;
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .uart-log::-webkit-scrollbar { width: 4px; }
+  .uart-log::-webkit-scrollbar-track { background: transparent; }
+  .uart-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .log-normal { color: #8b949e; }
+  .log-ok     { color: var(--green); }
+  .log-warn   { color: var(--amber); }
+  .log-fault  { color: var(--red);   font-weight: 600; }
+  .log-proc   { color: var(--blue);  }
+
+  /* ---- Waveform chart ---- */
+  .chart-legend {
+    display: flex; gap: 20px; margin-bottom: 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--text2);
+  }
+  .legend-dot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: middle; }
+
+  /* ---- Fault banner ---- */
+  .fault-banner {
+    display: none;
+    background: var(--red-bg);
+    border: 1px solid #5a1e1c;
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--red);
+    margin-bottom: 16px;
+    font-weight: 500;
+  }
+  .fault-banner.show { display: flex; align-items: center; gap: 10px; }
+
+  /* ---- Spacing ---- */
+  .gap { margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  .muted { color: var(--text2); font-size: 12px; font-family: var(--mono); }
+
+  @media (max-width: 800px) {
+    .grid2 { grid-template-columns: 1fr; }
+    .grid4 { grid-template-columns: 1fr 1fr; }
+    .task-row { grid-template-columns: 70px 1fr 40px; }
+    .task-row .stack-wrap { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================================================================
+  TOP BAR
+================================================================ -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div>
+      <div class="title">STM32F411RE · FreeRTOS v10.4</div>
+      <div class="subtitle">Multi-Sensor Data Logger Simulation</div>
+    </div>
+    <span class="chip" id="livePill">STOPPED</span>
+    <span class="chip" id="faultPill" style="display:none">FAULT ACTIVE</span>
+  </div>
+  <div class="btn-row">
+    <span class="muted" id="tickPill">Tick: 0</span>
+    <span class="muted" id="uptimePill">Uptime: 0.0s</span>
+    <button class="btn primary" id="startBtn" onclick="toggleSim()">▶ Start</button>
+    <button class="btn" id="faultBtn" onclick="injectFault()">Inject fault</button>
+    <button class="btn" onclick="clearLog()">Clear log</button>
+  </div>
+</header>
+
+<!-- ================================================================
+  MAIN CONTENT
+================================================================ -->
+<main class="main">
+
+  <!-- Fault banner -->
+  <div class="fault-banner" id="faultBanner">
+    <span>⚠</span>
+    <span>FAULT_MONITOR: Semaphore given — TEMP out of range. FaultMonitorTask preempted all lower-priority tasks.</span>
+  </div>
+
+  <!-- Metric cards -->
+  <div class="grid4 gap">
+    <div class="metric">
+      <div class="metric-label">temperature raw</div>
+      <div class="metric-val ok" id="vTempRaw">--</div>
+      <div class="metric-unit">°C · ADC1_IN0</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">temperature filtered</div>
+      <div class="metric-val ok" id="vTempAvg">--</div>
+      <div class="metric-unit">°C · avg(5)</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">pressure raw</div>
+      <div class="metric-val" id="vPresRaw" style="color:var(--blue)">--</div>
+      <div class="metric-unit">hPa · ADC1_IN1</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">pressure filtered</div>
+      <div class="metric-val" id="vPresAvg" style="color:var(--blue)">--</div>
+      <div class="metric-unit">hPa · avg(5)</div>
+    </div>
+  </div>
+
+  <div class="grid2 gap">
+
+    <!-- Task scheduler panel -->
+    <div class="panel">
+      <div class="panel-title">Task scheduler state</div>
+
+      <div class="task-row">
+        <div class="task-badge s-blocked" id="b0">BLOCKED</div>
+        <div class="task-name">FaultMonitorTask</div>
+        <div class="task-pri">P4</div>
+        <div class="stack-wrap"><div class="stack-track"><div class="stack-fill" id="sw0" style="width:22%"></div></div><span class="stack-pct" id="sp0">22%</span></div>
+      </div>
+      <div class="task-row">
+        <div class="task-badge s-ready" id="b1">READY</div>
+        <div class="task-name">SensorReadTask</div>
+        <div class="task-pri">P3</div>
+        <div class="stack-wrap"><div class="stack-track"><div class="stack-fill" id="sw1" style="width:31%"></div></div><span class="stack-pct" id="sp1">31%</span></div>
+      </div>
+      <div class="task-row">
+        <div class="task-badge s-blocked" id="b2">BLOCKED</div>
+        <div class="task-name">DataProcessTask</div>
+        <div class="task-pri">P2</div>
+        <div class="stack-wrap"><div class="stack-track"><div class="stack-fill" id="sw2" style="width:38%"></div></div><span class="stack-pct" id="sp2">38%</span></div>
+      </div>
+      <div class="task-row">
+        <div class="task-badge s-blocked" id="b3">BLOCKED</div>
+        <div class="task-name">DisplayTask</div>
+        <div class="task-pri">P1</div>
+        <div class="stack-wrap"><div class="stack-track"><div class="stack-fill" id="sw3" style="width:26%"></div></div><span class="stack-pct" id="sp3">26%</span></div>
+      </div>
+
+      <div style="margin-top: 18px;">
+        <div class="panel-title" style="margin-bottom:10px;">RTOS primitives</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div>
+            <div class="muted" style="margin-bottom:6px;">xSensorQueue (len=8)</div>
+            <div class="row">
+              <div class="q-grid" id="qCells">
+                <div class="q-cell" id="qc0"></div><div class="q-cell" id="qc1"></div>
+                <div class="q-cell" id="qc2"></div><div class="q-cell" id="qc3"></div>
+                <div class="q-cell" id="qc4"></div><div class="q-cell" id="qc5"></div>
+                <div class="q-cell" id="qc6"></div><div class="q-cell" id="qc7"></div>
+              </div>
+              <span class="muted" id="qDepthLabel">0/8</span>
+            </div>
+          </div>
+          <div>
+            <div class="muted" style="margin-bottom:6px;">xAlertSem (binary semaphore)</div>
+            <div class="sem-indicator">
+              <div class="sem-dot free" id="semDot"></div>
+              <span id="semLabel" style="color:var(--green)">FREE</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Waveform panel -->
+    <div class="panel" style="display:flex; flex-direction:column; gap:0;">
+      <div class="panel-title">Sensor waveform — 60 samples × 100 ms</div>
+      <div class="chart-legend">
+        <span><span class="legend-dot" style="background:#3fb950"></span>Temp (°C) — left axis</span>
+        <span><span class="legend-dot" style="background:#58a6ff"></span>Pressure (hPa) — right axis</span>
+      </div>
+      <div style="position:relative; height:200px; flex:1;">
+        <canvas id="waveChart" role="img" aria-label="Temperature and pressure sensor waveform over 60 samples"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- UART log -->
+  <div class="panel">
+    <div class="row" style="margin-bottom:12px;">
+      <div class="panel-title" style="margin-bottom:0; flex:1;">UART output log · 115200 baud · PA2 (ST-Link VCP)</div>
+      <span class="muted" id="logCount">0 lines</span>
+    </div>
+    <div class="uart-log" id="uartLog"></div>
+  </div>
+
+</main>
+
+<script>
+/* ================================================================
+   SIMULATION ENGINE
+================================================================ */
+const N = 60;
+let running = false;
+let tick = 0;
+let faultInjected = false;
+let faultActive = false;
+let phase = 0;
+let interval = null;
+let logLines = 0;
+
+const tempHistory = Array(N).fill(null);
+const presHistory = Array(N).fill(null);
+const tempBuf = [], presBuf = [];
+
+/* ---- Chart init ---- */
+const waveCtx = document.getElementById('waveChart').getContext('2d');
+const waveChart = new Chart(waveCtx, {
+  type: 'line',
+  data: {
+    labels: Array(N).fill(''),
+    datasets: [
+      {
+        label: 'Temp',
+        data: [...tempHistory],
+        borderColor: '#3fb950',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.35,
+        yAxisID: 'yTemp',
+        borderDash: [],
+      },
+      {
+        label: 'Pressure',
+        data: [...presHistory],
+        borderColor: '#58a6ff',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.35,
+        yAxisID: 'yPres',
+        borderDash: [4, 3],
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { display: false },
+      yTemp: {
+        min: 0, max: 100,
+        ticks: { color: '#3fb950', font: { size: 10, family: 'JetBrains Mono' }, maxTicksLimit: 5 },
+        grid: { color: 'rgba(255,255,255,0.05)' },
+      },
+      yPres: {
+        position: 'right',
+        min: 880, max: 1120,
+        ticks: { color: '#58a6ff', font: { size: 10, family: 'JetBrains Mono' }, maxTicksLimit: 5 },
+        grid: { display: false },
+      }
+    }
+  }
+});
+
+/* ---- Helpers ---- */
+function movingAvg(buf, val, n) {
+  buf.push(val);
+  if (buf.length > n) buf.shift();
+  return buf.reduce((a, b) => a + b, 0) / buf.length;
+}
+
+function noise(base, amp) { return base + (Math.random() - 0.5) * amp; }
+
+function setBadge(id, state) {
+  const el = document.getElementById(id);
+  el.className = 'task-badge';
+  const map = { RUNNING: 's-running', BLOCKED: 's-blocked', READY: 's-ready', FAULT: 's-fault' };
+  el.classList.add(map[state] || 's-blocked');
+  el.textContent = state;
+}
+
+function setQueue(depth) {
+  for (let i = 0; i < 8; i++) {
+    document.getElementById('qc' + i).className = 'q-cell' + (i < depth ? ' full' : '');
+  }
+  document.getElementById('qDepthLabel').textContent = depth + '/8';
+}
+
+function setSem(taken) {
+  const dot = document.getElementById('semDot');
+  const lbl = document.getElementById('semLabel');
+  dot.className = 'sem-dot ' + (taken ? 'taken' : 'free');
+  lbl.textContent = taken ? 'TAKEN' : 'FREE';
+  lbl.style.color = taken ? 'var(--red)' : 'var(--green)';
+}
+
+function setStack(i, pct) {
+  document.getElementById('sw' + i).style.width = pct + '%';
+  document.getElementById('sp' + i).textContent = pct + '%';
+}
+
+const logEl = document.getElementById('uartLog');
+function uartLog(msg, cls) {
+  const div = document.createElement('div');
+  const ms = (tick * 100).toString().padStart(7, ' ');
+  div.className = cls || 'log-normal';
+  div.textContent = '[' + ms + 'ms] ' + msg;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  logLines++;
+  document.getElementById('logCount').textContent = logLines + ' lines';
+  if (logEl.children.length > 500) logEl.removeChild(logEl.firstChild);
+}
+
+function clearLog() {
+  logEl.innerHTML = '';
+  logLines = 0;
+  document.getElementById('logCount').textContent = '0 lines';
+}
+
+function setMetric(id, val, cls) {
+  const el = document.getElementById(id);
+  el.textContent = val;
+  el.className = 'metric-val ' + (cls || '');
+}
+
+/* ---- Main simulation tick ---- */
+function step() {
+  tick++;
+  document.getElementById('tickPill').textContent = 'Tick: ' + tick;
+  document.getElementById('uptimePill').textContent = 'Uptime: ' + (tick / 10).toFixed(1) + 's';
+
+  let rawTemp, rawPres;
+  if (faultInjected) {
+    rawTemp = 72 + Math.random() * 18;
+    rawPres = noise(1013, 8);
+  } else {
+    rawTemp = 28 + 12 * Math.sin(phase) + noise(0, 1.5);
+    rawPres = 1013 + 25 * Math.cos(phase * 0.6) + noise(0, 4);
+    phase += 0.15;
+  }
+  rawTemp = Math.round(rawTemp * 10) / 10;
+  rawPres = Math.round(rawPres * 10) / 10;
+
+  const fTemp = Math.round(movingAvg(tempBuf, rawTemp, 5) * 10) / 10;
+  const fPres = Math.round(movingAvg(presBuf, rawPres, 5) * 10) / 10;
+
+  const tempCls = rawTemp > 70 ? 'err' : rawTemp > 55 ? 'warn' : 'ok';
+  setMetric('vTempRaw', rawTemp.toFixed(1), tempCls);
+  setMetric('vTempAvg', fTemp.toFixed(1), tempCls);
+  setMetric('vPresRaw', rawPres.toFixed(1), '');
+  setMetric('vPresAvg', fPres.toFixed(1), '');
+  document.getElementById('vPresRaw').style.color = 'var(--blue)';
+  document.getElementById('vPresAvg').style.color = 'var(--blue)';
+
+  tempHistory.push(rawTemp); tempHistory.shift();
+  presHistory.push(rawPres); presHistory.shift();
+  waveChart.data.datasets[0].data = [...tempHistory];
+  waveChart.data.datasets[1].data = [...presHistory];
+  waveChart.update('none');
+
+  const isFault = rawTemp > 70;
+  faultActive = isFault;
+
+  const faultBanner = document.getElementById('faultBanner');
+  const faultPill   = document.getElementById('faultPill');
+  const livePill    = document.getElementById('livePill');
+
+  if (isFault) {
+    faultBanner.classList.add('show');
+    faultPill.style.display = 'inline';
+    setSem(true);
+    setBadge('b0', 'FAULT');
+    setBadge('b1', 'READY');
+    setBadge('b2', 'BLOCKED');
+    setBadge('b3', 'BLOCKED');
+    if (tick % 3 === 0) uartLog('[FAULT_MON] !!! ALERT: T=' + rawTemp.toFixed(1) + '°C > 70.0 threshold. xSemaphoreGive(xAlertSem)', 'log-fault');
+    setStack(0, Math.min(95, 34 + Math.round(Math.random() * 6)));
+  } else {
+    faultBanner.classList.remove('show');
+    faultPill.style.display = 'none';
+    setSem(false);
+    setBadge('b0', 'BLOCKED');
+
+    const s = tick % 10;
+    if (s < 3) {
+      setBadge('b1', 'RUNNING');
+      setBadge('b2', 'BLOCKED');
+      setBadge('b3', 'BLOCKED');
+    } else if (s < 7) {
+      setBadge('b1', 'BLOCKED');
+      setBadge('b2', 'RUNNING');
+      setBadge('b3', 'READY');
+    } else {
+      setBadge('b1', 'READY');
+      setBadge('b2', 'BLOCKED');
+      setBadge('b3', 'RUNNING');
+    }
+    setStack(0, 22);
+  }
+
+  setStack(1, Math.min(90, 27 + Math.round(Math.random() * 8)));
+  setStack(2, Math.min(90, 34 + Math.round(Math.random() * 10)));
+  setStack(3, Math.min(90, 23 + Math.round(Math.random() * 6)));
+
+  const qd = isFault ? 0 : Math.floor(Math.random() * 4);
+  setQueue(qd);
+
+  if (tick % 5 === 1) {
+    uartLog('[SENSOR]    T_raw=' + rawTemp.toFixed(2) + ' P_raw=' + rawPres.toFixed(2) + ' xQueueSend OK', 'log-normal');
+  }
+  if (tick % 5 === 2 && !isFault) {
+    uartLog('[DATA_PROC] T_avg=' + fTemp.toFixed(2) + ' P_avg=' + fPres.toFixed(2) + ' moving_avg(5) updated', 'log-proc');
+  }
+  if (tick % 10 === 0 && !isFault) {
+    uartLog('[DISPLAY]   T=' + rawTemp.toFixed(1) + '°C (avg ' + fTemp.toFixed(1) + ') P=' + rawPres.toFixed(0) + ' hPa (avg ' + fPres.toFixed(0) + ')', 'log-ok');
+  }
+}
+
+function toggleSim() {
+  running = !running;
+  const btn = document.getElementById('startBtn');
+  const pill = document.getElementById('livePill');
+  if (running) {
+    btn.textContent = '⏸ Pause';
+    btn.className = 'btn danger';
+    pill.textContent = 'LIVE';
+    pill.className = 'chip live';
+    interval = setInterval(step, 200);
+    uartLog('[RTOS]      Scheduler started. 4 tasks created. Heap free: ~14.2 KB', 'log-ok');
+    uartLog('[DISPLAY]   ============================================', 'log-normal');
+    uartLog('[DISPLAY]     STM32 FreeRTOS Multi-Sensor Data Logger  ', 'log-normal');
+    uartLog('[DISPLAY]   ============================================', 'log-normal');
+  } else {
+    btn.textContent = '▶ Resume';
+    btn.className = 'btn primary';
+    pill.textContent = 'PAUSED';
+    pill.className = 'chip';
+    clearInterval(interval);
+    uartLog('[RTOS]      Scheduler paused (simulation only)', 'log-warn');
+  }
+}
+
+function injectFault() {
+  faultInjected = !faultInjected;
+  const btn = document.getElementById('faultBtn');
+  if (faultInjected) {
+    btn.textContent = 'Clear fault';
+    btn.className = 'btn danger';
+    uartLog('[TEST]      Fault injected: TEMP spike simulated (>70°C)', 'log-warn');
+  } else {
+    btn.textContent = 'Inject fault';
+    btn.className = 'btn';
+    uartLog('[TEST]      Fault cleared: returning to normal waveform', 'log-ok');
+  }
+}
+</script>
+</body>
+</html>

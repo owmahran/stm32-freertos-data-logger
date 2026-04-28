@@ -1,0 +1,8 @@
+mach create "STM32F411"
+machine LoadPlatformDescription @platforms/boards/stm32f4_discovery-kit.repl
+
+sysbus LoadELF @Debug/Datalogger.elf
+
+showAnalyzer sysbus.usart2
+
+start
